@@ -736,6 +736,14 @@ def _write_summary(workbook, scenario: Scenario, totals: dict[str, sh.TotalRef])
     layout = sh.build_layout(scenario)
 
     sh.write_widths(sheet, layout, stub_width=36.0)
+    # The operating block above is nothing but references, so for a long
+    # time this page carried no palette - and the cash block below escalates
+    # its recurring dues line against the Flat tier's cell, which on a page
+    # without a palette is empty. Excel reads an empty cell as zero, flat is
+    # zero, and the line therefore came out right by arithmetic accident.
+    # It would have stopped being right the moment anyone moved a cash line
+    # onto a tier that is not flat, and the failure would have been silent.
+    sh.write_palette(sheet, scenario, layout)
     sh.write_title(
         sheet, layout, f"Pro Forma Summary — {scenario.institution} — Expenses"
     )

@@ -140,7 +140,6 @@ GAME_GUARANTEE = Page(
     title="Game Guarantee",
     stub_header="Game Guarantee",
     per_sport=True,
-    total_label="Total Revenue",
 )
 
 PROGRAM_REVENUE = Page(

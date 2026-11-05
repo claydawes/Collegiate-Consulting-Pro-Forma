@@ -174,6 +174,37 @@ def test_each_summary_row_equals_the_detail_total_it_references(revenue, expense
                 book.number(summary, coordinate)
 
 
+def test_no_formula_escalates_against_an_empty_cell(revenue, expense):
+    """Every `$X$1` an escalation formula points at has to hold a rate.
+
+    The expense Summary used to point its recurring cash line at a palette
+    cell on a page that had no palette. Excel reads the empty cell as zero,
+    the tier in question was Flat, and zero is what Flat means - so the
+    figures were right by arithmetic accident and would have gone silently
+    wrong the day a cash line moved onto any other tier.
+
+    This is the general form of that bug: a projection chain anchored to
+    nothing produces a column of accounting dashes, which looks like a
+    formatting choice rather than a broken model.
+    """
+    import re
+
+    reference = re.compile(r"\$([A-Z]{1,3})\$(\d+)")
+    for book in (revenue, expense):
+        for worksheet in book._workbook.worksheets:
+            for row in worksheet.iter_rows():
+                for cell in row:
+                    if not isinstance(cell.value, str) or not cell.value.startswith("="):
+                        continue
+                    for column, number in reference.findall(cell.value):
+                        target = worksheet[f"{column}{number}"]
+                        assert isinstance(target.value, (int, float)), (
+                            f"{worksheet.title}!{cell.coordinate} escalates against "
+                            f"{column}{number}, which holds {target.value!r} — the whole "
+                            "chain below it computes to nothing"
+                        )
+
+
 def test_page_totals_equal_the_sum_of_their_rows(expense):
     """Totals are summed from an explicit row list rather than a range, so
     this checks the list is complete.

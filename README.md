@@ -42,7 +42,7 @@ streamlit run app.py
 | Scholar | per sport, three columns a year: equivalencies, budget, cost per student-athlete; two grand totals, sports alone and with non-team-specific aid |
 | Sports Operations | per sport operating budget, plus the unattributed residual |
 | Admin Operating | departmental operating lines |
-| Salaries | administration by department and coaching by sport, each with salary, benefits and combined totals |
+| Salaries | administration by department and coaching by sport, each with salary, benefits and combined totals — filled from Step 4 |
 
 Both carry a `$ Change` column measuring the last projected year against the
 base year.
@@ -56,12 +56,22 @@ as a working paper. Provenance lives beside each line in
 
 ## How the projection works
 
-Each page has an **escalation palette** in row 1 — six editable cells
-(Aggressive 30% … Flat 0%), descending, directly above the years they move
-— and every line is assigned one. They carry comments naming their tier and
-no printed label: six descending percentages in input-grey say what they are
-without putting a line of instruction above the title band. A
-projected year is `=ROUND(prior*(1+$H$1),0)` against its tier's cell.
+Every page that escalates anything has an **escalation palette** in row 1 —
+six editable cells (Aggressive 30% … Flat 0%), descending, directly above
+the years they move — and every line on it is assigned one. They carry
+comments naming their tier and no printed label: six descending percentages
+in input-grey say what they are without putting a line of instruction above
+the title band. A projected year is `=ROUND(prior*(1+$H$1),0)` against its
+tier's cell.
+
+The revenue Totals page has no palette, because nothing on it escalates —
+every figure is a reference to a detail sheet. The expense Summary does,
+because its cash block escalates its recurring dues line. Six editable cells
+driving nothing would be worse than none, and a formula pointing at a cell
+that doesn't exist is worse still: Excel reads the empty cell as zero, and
+the whole chain under it quietly computes to nothing. A test
+(`test_no_formula_escalates_against_an_empty_cell`) checks every `$X$1` in
+both workbooks resolves to a rate.
 
 This is the reason the deliverable is a workbook rather than a PDF: changing
 3% to 4% in one cell moves every line on that tier, across every year. The
@@ -93,11 +103,10 @@ Years come in three kinds:
 | individual positions and salaries | **not in the filing at all** |
 | conference fee schedules, intended growth | **not in the filing at all** |
 
-The Salaries page writes CC's standard Division I position scaffold with blank
-base years, and puts the filing's reported coaching and support-staff totals
-beside them as reconciliation rows. It does **not** distribute the reported
-total across invented positions — that would read as reported detail and be
-fiction.
+The Salaries page writes CC's standard Division I position scaffold. It does
+**not** distribute the reported total across invented positions — that would
+read as reported detail and be fiction. Filling the scaffold in is **Step 4**
+(below).
 
 A blank cell means the filing carried no figure. It is deliberately not
 zeroed: a real $0 and "not reported" are different claims, and the workbook
@@ -167,13 +176,116 @@ figure the institution never filed is worse than one that doesn't tie:
 
 ---
 
+## Step 4 · Salaries
+
+FRS reports one coaching total per sport and one support-staff total for the
+department. It never reports positions, so the scaffold arrives empty and
+somebody has to fill it in. Two ways:
+
+- **Upload the institution's salary file** — any .xlsx, .csv or .tsv with a
+  position column and a salary column. A Sport column is used where there is
+  one; so is a sport written as a **section heading** above the rows it
+  covers, which is how a conference survey form carries it.
+- A workbook with a sheet per institution — a conference salary survey —
+  **asks which sheet**. Taking the first one silently builds a pro forma out
+  of a rival's payroll, and every figure on it looks perfectly reasonable.
+- **Type them in** — the scaffold as a grid, one row per position.
+
+Only the base year is entered. Everything after it escalates off that year
+against the line's tier, which is the whole reason for entering one year
+rather than six.
+
+### The titles never match
+
+The scaffold says `Associate AD - External Operations`; the file says
+`Assoc. Athletic Director, External Ops`. It says `SID`, `Asst AT #2`,
+`S&C GA`, and `Head Coach` under a Sport column. A substring match gets
+about half of these, and the half it gets wrong it gets wrong *silently* — a
+$190,000 Director of Athletics landing on the Nutritionist row produces a
+workbook that opens, adds up, and is nonsense.
+
+`pfa/extraction/salaries.py` does five things about that:
+
+1. **Abbreviations are expanded before anything is compared.** A domain
+   where every other title contains "AD", "SWA", "ATC", "GA" or "Assoc."
+   cannot be matched on raw strings. Apostrophes close up rather than split,
+   because CC's own books are full of `Ass't Director`.
+2. **The subject noun decides it, not the role word.** Compliance,
+   facilities, ticketing, marketing — these are compared, and *then*
+   "Director"/"Coordinator"/"Manager" break the tie. Weighting every token
+   equally is how `Ass't Director - Facilities` reached
+   `Assistant Director - Compliance` with no hesitation: two of three words
+   matched, and the one that didn't was the only one that meant anything.
+3. **Seniority is decisive, sport is a gate.** "Head" and "Assistant" differ
+   by one token and by a person, so disagreeing seniority is penalised hard
+   — while Director/Manager/Coordinator are treated as interchangeable,
+   because institutions use them that way. A row naming a sport can only
+   land on that sport's rows, which stops six identical "Head Coach" rows
+   piling onto whichever sport sorts first.
+4. **Assignment is one-to-one, best first,** and an exact label always wins
+   a tie. Three "Assistant Coach" rows fill #1, #2 and #3 instead of
+   overwriting each other.
+5. **A weak match is left blank, not guessed.** An empty row reads as "to
+   confirm"; a wrong row reads as a fact, and nobody re-checks a fact.
+
+Then all of it goes in front of the analyst, because none of the above is
+good enough to trust unreviewed. Every row shows what it matched, how
+confident the match is, and a dropdown of everywhere else it could go.
+
+A graduate assistant is deliberately not an assistant: the labels differ by
+one word and about $45,000, so a plain "Assistant Coach" is never placed on
+a GA row — it is offered one.
+
+### What the files actually look like
+
+Two shapes, and the second is the one that breaks naive readers:
+
+| | payroll export | conference survey form |
+|---|---|---|
+| sheets | one | one per institution |
+| above the data | a title and a blank line | a page of instructions |
+| column A | the position | a numbering — `1`, `2`, `50A` |
+| the title column | has a header | has **no header at all** |
+| the sport | a column, sometimes | a section heading |
+
+Read naively, the second shape yields the numbering column as both the title
+and the salary: 185 rows in which the Director of Athletics earns $1. So the
+header search requires short cells and whole-word matches, a column of
+numbers is only a salary column if its median clears $1,000, the title
+column is found as the text column nearest to the left of the salary, and a
+lone piece of text on an otherwise empty row is read as a section heading
+unless it looks like an instruction.
+
+### Measured against CC's own books
+
+`tests/test_salary_corpus.py` takes the 68 position titles out of the
+Salaries sheets of the three example pro formas — three institutions, three
+people's habits of abbreviation — and pairs each with the row it has to
+reach, or with "nowhere" where the institution has two marketing staff and
+the scaffold has one marketing row.
+
+**54 land clean, 6 come back flagged, 8 stay open.** The number that matters
+is the fourth one: **nothing is confidently wrong.** A matcher that reached
+100% by guessing would be worse than this, because the part it invented
+would look exactly like the part it knew.
+
+Checked again against a real conference salary survey — 11 institutions, 902
+rows, none of it in this repository — **57% land clean and nothing is
+confidently wrong**: no title naming a sport reaches another sport's row or
+an administrative one, and no title naming a gender reaches the other. The
+rest is mostly the scaffold running out of room, which is honest: it is CC's
+standard mid-major build, and a department that lists a Director of Laundry
+Operations has roles it does not carry.
+
+---
+
 ## Tests
 
 ```bash
 python -m pytest tests/ -q
 ```
 
-Twenty-seven tests. The point of them is that they **evaluate** the finished
+Ninety-two tests. The point of them is that they **evaluate** the finished
 workbooks rather than inspecting them — `tests/evaluate.py` is a small Excel
 engine (references, ranges, `ROUND`, `SUM`, lazy `IFERROR`) written because
 openpyxl writes formulas and does not compute them. Without it a test can
@@ -200,7 +312,7 @@ that looked like a formatting choice. Reintroduce it and two tests fail.
 ## Layout
 
 ```
-app.py                      Streamlit, four steps behind a shared password
+app.py                      Streamlit, five steps behind a shared password
 pfa/
   model/
     schema.py               THE TAXONOMY — line items, FRS category mapping,
@@ -217,12 +329,15 @@ pfa/
     workbooks.py            assemble a scenario, build both files
   extraction/
     frs.py                  FRS filings -> a scenario seed
+    salaries.py             a salary file -> the position scaffold
     parsers/                shared with the other two projects
   sports.py                 the NCAA master list and name matching
   web/                      branding and the password gate
 tests/
   evaluate.py               the Excel engine
-  test_workbooks.py         twenty-four tests
+  test_workbooks.py         the workbooks, evaluated rather than inspected
+  test_salaries.py          matching and reading a salary file
+  test_salary_corpus.py     68 real titles out of CC's own books
   fixture.py                synthetic filings, so most tests need no PDF
 ```
 
